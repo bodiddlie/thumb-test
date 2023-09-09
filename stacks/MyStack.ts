@@ -1,14 +1,24 @@
-import { StackContext, Api, Bucket, } from "sst/constructs";
+import { StackContext, Api, Bucket, Queue} from "sst/constructs";
 
 export function API({ stack }: StackContext) {
+
   const thumbnailBucket = new Bucket(stack, "Thumbnail");
 
   const bucket = new Bucket(stack, "Upload");
 
+  const thumbGenQueue = new Queue(stack, "ThumbGenQueue", {
+    consumer: {
+      function: {
+        handler: "packages/functions/src/thumbgen.handler",
+        bind: [bucket, thumbnailBucket]
+      },
+    }
+  });
+
   const api = new Api(stack, "api", {
     defaults: {
       function: {
-        bind: [bucket, thumbnailBucket],
+        bind: [thumbnailBucket, thumbGenQueue]
       },
     },
     routes: {

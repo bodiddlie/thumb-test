@@ -1,8 +1,10 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {SQSClient, SendMessageCommand} from "@aws-sdk/client-sqs";
 import { APIGatewayProxyHandlerV2 } from "aws-lambda";
 import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
 import {Bucket} from 'sst/node/bucket';
-import sharp from 'sharp';
+import {Queue} from 'sst/node/queue';
+// import sharp from 'sharp';
 
 const sizeMap = {
   sm: 150,
@@ -11,41 +13,24 @@ const sizeMap = {
 };
 
 export const get: APIGatewayProxyHandlerV2 = async (event) => {
-  if (!event.pathParameters) throw new Error('shit broke');
+  if (!event.pathParameters || !event.pathParameters.id) throw new Error('shit broke');
   const {id} = event.pathParameters;
-  if (!id) throw new Error('shit broke');
 
-  const command = new GetObjectCommand({
-    Bucket: Bucket.Upload.bucketName,
-    Key: `IMG_9529.jpg`,
-  })
-
-  const client = new S3Client({});
-  const response = await client.send(command);
-
-  const bytes = await response.Body?.transformToByteArray();
-
-  if (!bytes) {
-    throw new Error('no image data found');
+  const messageBody = {
+    docId: id
   }
 
-  const buffer = Buffer.from(bytes);
+  const command = new SendMessageCommand({
+    QueueUrl: Queue.ThumbGenQueue.queueUrl,
+    MessageBody: JSON.stringify(messageBody)
+  });
 
-  const sizes = Object.keys(sizeMap);
-  for (const size of sizes) {
-    const outputBuffer = await sharp(buffer).resize(sizeMap[size as keyof typeof sizeMap]).withMetadata().toBuffer();
-    const putCommand = new PutObjectCommand({
-      ACL: "public-read",
-      Body: outputBuffer,
-      Bucket: Bucket.Thumbnail.bucketName,
-      Key: `${size}-${id}.jpg`
-    })
-    await client.send(putCommand);
-  }
+  const client = new SQSClient({});
+  await client.send(command);
 
   return {
     statusCode: 200,
-  }
+  };
 }
 
 export const thumbnails: APIGatewayProxyHandlerV2 = async (event) => {
@@ -61,7 +46,7 @@ export const thumbnails: APIGatewayProxyHandlerV2 = async (event) => {
   const {id} = event.pathParameters;
 
   const command = new GetObjectCommand({
-    Bucket: process.env.thumbnailBucketName,
+    Bucket: Bucket.Thumbnail.bucketName,
     Key: `${size}-${id}.jpg`,
   })
 
